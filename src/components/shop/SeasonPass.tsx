@@ -1,19 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Lock, Check, Star, Crown, Gift, Zap, Coins, Box, User as UserIcon, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { Lock, Check, Star, Crown, Gift, Zap, Coins, Box, User as UserIcon, Image as ImageIcon } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { cn, getBackgroundStyle } from '@/lib/utils';
-import type { User, ClaimRewardRequest, ClaimRewardResponse, UpgradeSeasonPassRequest, ShopItem, SystemConfig } from '@shared/types';
+import { cn } from '@/lib/utils';
+import type { User, ClaimRewardRequest, UpgradeSeasonPassRequest } from '@shared/types';
 import { SEASON_REWARDS_CONFIG, SEASON_COST, SEASON_LEVELS, SEASON_NAME, SEASON_END_DATE } from '@shared/constants';
 import { api } from '@/lib/api-client';
 import { useAuthStore } from '@/lib/auth-store';
 import { toast } from 'sonner';
-import confetti from 'canvas-confetti';
-import { playSfx } from '@/lib/sound-fx';
-import { useTheme } from '@/hooks/use-theme';
 interface SeasonPassProps {
   user: User | null;
 }
@@ -25,28 +21,13 @@ export function SeasonPass({ user }: SeasonPassProps) {
   const updateUser = useAuthStore(s => s.updateUser);
   const [isProcessing, setIsProcessing] = useState(false);
   const [timeLeft, setTimeLeft] = useState('');
-  const [rewardResult, setRewardResult] = useState<{ type: 'coins' | 'item', amount?: number, item?: ShopItem } | null>(null);
-  const [seasonName, setSeasonName] = useState(SEASON_NAME);
-  const { reduceMotion } = useTheme();
   const currentLevel = user?.level || 1;
   const currentXp = user?.xp || 0;
   const isPremium = user?.seasonPass?.isPremium || false;
   const claimedRewards = user?.seasonPass?.claimedRewards || [];
   // Calculate progress within current level (simplified for display)
+  // In a real app, we'd use getXpRequiredForNextLevel from progression.ts
   const progressPercent = (currentXp % 100);
-  useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const config = await api<SystemConfig>('/api/config');
-        if (config.seasonName) {
-          setSeasonName(config.seasonName);
-        }
-      } catch (e) {
-        console.error("Failed to fetch season config", e);
-      }
-    };
-    fetchConfig();
-  }, []);
   useEffect(() => {
     const calculateTimeLeft = () => {
       const end = new Date(SEASON_END_DATE).getTime();
@@ -80,21 +61,12 @@ export function SeasonPass({ user }: SeasonPassProps) {
     setIsProcessing(true);
     try {
       const req: ClaimRewardRequest = { userId: user.id, level, track };
-      const response = await api<ClaimRewardResponse>('/api/shop/season/claim', {
+      const updatedUser = await api<User>('/api/shop/season/claim', {
         method: 'POST',
         body: JSON.stringify(req)
       });
-      updateUser(response.user);
-      setRewardResult(response.reward);
-      playSfx('win');
-      if (!reduceMotion) {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#fbbf24', '#f59e0b', '#d97706']
-        });
-      }
+      updateUser(updatedUser);
+      toast.success(`Claimed Level ${level} ${track} reward!`);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Failed to claim reward");
@@ -134,7 +106,7 @@ export function SeasonPass({ user }: SeasonPassProps) {
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 border border-red-500/30 text-red-300 text-sm font-bold uppercase tracking-wider">
               <Crown className="w-4 h-4 fill-red-300" /> Season Event
             </div>
-            <h2 className="text-4xl md:text-5xl font-display font-bold text-white">{seasonName}</h2>
+            <h2 className="text-4xl md:text-5xl font-display font-bold text-white">{SEASON_NAME}</h2>
             <p className="text-indigo-100 max-w-lg">
               Unlock exclusive festive rewards, holiday avatars, and spread the cheer.
               Ends in {timeLeft}.
@@ -180,7 +152,7 @@ export function SeasonPass({ user }: SeasonPassProps) {
         <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-zinc-950 to-transparent z-10 pointer-events-none md:hidden" />
         <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-zinc-950 to-transparent z-10 pointer-events-none md:hidden" />
         <ScrollArea className="w-full whitespace-nowrap">
-          <div className="flex px-8 pt-8 pb-14 min-w-max">
+          <div className="flex p-8 min-w-max">
             {/* Labels Column */}
             <div className="flex flex-col gap-8 mr-8 sticky left-0 z-20 bg-zinc-950/95 px-4 py-2 rounded-r-xl border-r border-white/10 shadow-xl">
               <div className="h-24 flex items-center font-bold text-indigo-300 uppercase tracking-wider text-sm">
@@ -210,7 +182,7 @@ export function SeasonPass({ user }: SeasonPassProps) {
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-0">
                       <div className={cn(
                         "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-colors",
-                        isUnlocked
+                        isUnlocked 
                           ? "bg-indigo-600 border-indigo-400 text-white shadow-[0_0_10px_rgba(99,102,241,0.5)]"
                           : isNext
                             ? "bg-zinc-800 border-white/20 text-white animate-pulse"
@@ -256,53 +228,6 @@ export function SeasonPass({ user }: SeasonPassProps) {
           <ScrollBar orientation="horizontal" className="bg-white/5" />
         </ScrollArea>
       </div>
-      {/* Reward Reveal Dialog */}
-      <Dialog open={!!rewardResult} onOpenChange={() => setRewardResult(null)}>
-        <DialogContent className="bg-zinc-950 border-white/10 text-center sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-display text-white">Reward Unlocked!</DialogTitle>
-            <DialogDescription className="sr-only">You have claimed a reward</DialogDescription>
-          </DialogHeader>
-          {rewardResult && (
-            <div className="py-8 flex flex-col items-center animate-in zoom-in duration-500">
-              <div className={cn(
-                "w-32 h-32 rounded-full flex items-center justify-center mb-6 relative",
-                rewardResult.type === 'item' && rewardResult.item?.rarity === 'legendary' ? "bg-yellow-500/20 shadow-[0_0_50px_rgba(234,179,8,0.5)]" :
-                rewardResult.type === 'item' && rewardResult.item?.rarity === 'epic' ? "bg-purple-500/20 shadow-[0_0_50px_rgba(168,85,247,0.5)]" :
-                "bg-blue-500/20"
-              )}>
-                <Sparkles className={cn(
-                  "absolute -top-4 -right-4 w-8 h-8 animate-bounce",
-                  rewardResult.type === 'item' && rewardResult.item?.rarity === 'legendary' ? "text-yellow-400" : "text-white"
-                )} />
-                {rewardResult.type === 'coins' ? (
-                  <Coins className="w-16 h-16 text-yellow-400" />
-                ) : rewardResult.item ? (
-                  rewardResult.item.type === 'avatar' ? (
-                    <img src={rewardResult.item.assetUrl} className="w-24 h-24 rounded-full" />
-                  ) : (
-                    <div className="w-24 h-16 rounded bg-cover bg-center" style={getBackgroundStyle(rewardResult.item.assetUrl)} />
-                  )
-                ) : (
-                  <Gift className="w-16 h-16 text-white" />
-                )}
-              </div>
-              <h3 className={cn(
-                "text-xl font-bold mb-1",
-                rewardResult.type === 'item' && rewardResult.item?.rarity === 'legendary' ? "text-yellow-400" :
-                rewardResult.type === 'item' && rewardResult.item?.rarity === 'epic' ? "text-purple-400" :
-                "text-white"
-              )}>
-                {rewardResult.type === 'coins' ? `${rewardResult.amount} Coins` : rewardResult.item?.name}
-              </h3>
-              {rewardResult.type === 'item' && rewardResult.item && (
-                <p className="text-sm text-muted-foreground uppercase tracking-widest">{rewardResult.item.rarity}</p>
-              )}
-            </div>
-          )}
-          <Button onClick={() => setRewardResult(null)}>Awesome!</Button>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
